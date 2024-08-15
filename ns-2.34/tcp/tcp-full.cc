@@ -286,6 +286,74 @@ int SackFullTcpAgent::delay_bind_dispatch(const char *varName, const char *local
 	return FullTcpAgent::delay_bind_dispatch(varName, localName, tracer);
 }
 
+
+void EcnStats::updatePackets(int TClevel, bool isEcnMarked, double currentTime, double timeWindow) {
+    auto& senderStats = TCsData[TClevel];
+
+    // 确保 senderStats 不为空
+    if (!senderStats) {
+        senderStats = std::make_shared<SenderStats>();
+    }
+
+    // 更新总包数和ECN标记的包数
+    senderStats->totalPackets++;
+    if (isEcnMarked) {
+        senderStats->ecnMarkedPackets++;
+    }
+
+    // 记录统计信息
+    if (senderStats->packetsInWindow.empty() || currentTime - std::get<0>(senderStats->packetsInWindow.back()) > timeWindow) {
+        senderStats->packetsInWindow.emplace_back(currentTime, 1, isEcnMarked ? 1 : 0);
+    } else {
+        auto& lastTuple = senderStats->packetsInWindow.back();
+        std::get<1>(lastTuple)++;
+        if (isEcnMarked) {
+            std::get<2>(lastTuple)++;
+        }
+    }
+
+    // 移除超出时间窗口的数据
+    while (!senderStats->packetsInWindow.empty() && currentTime - std::get<0>(senderStats->packetsInWindow.front()) > 20 * timeWindow) {
+        senderStats->totalPackets -= std::get<1>(senderStats->packetsInWindow.front());
+        senderStats->ecnMarkedPackets -= std::get<2>(senderStats->packetsInWindow.front());
+        senderStats->packetsInWindow.pop_front();
+    }
+}
+
+// Getter 方法
+int EcnStats::getTotalPackets(int TClevel) const {
+    auto it = TCsData.find(TClevel);
+    if (it != TCsData.end()) {
+        return it->second->totalPackets;
+    }
+    return 0;
+}
+
+int EcnStats::getTotalEcnMarkedPackets() const {
+    int res = 0;
+	for (auto it : TCsData) {
+		res += it.second->ecnMarkedPackets;
+	}
+	return res;
+}
+
+
+double EcnStats::getAlpha(int TClevel) {
+    auto it = TCsData.find(TClevel);
+    if (it != TCsData.end()) {
+        return it->second->alpha;
+    }
+    return 0.0;
+}
+
+void EcnStats::updateAlpha(int TClevel, double alpha_) {
+    auto it = TCsData.find(TClevel);
+    if (it != TCsData.end()) {
+        it->second->alpha = alpha_;
+    }
+}
+
+
 int FullTcpAgent::command(int argc, const char *const *argv)
 {
 	// would like to have some "connect" primitive
@@ -1096,53 +1164,6 @@ void FullTcpAgent::sendpacket(int seqno, int ackno, int pflags, int datalen, int
 	
 
 
-	if (ecn_ && ect_ && state_ == TCPS_ESTABLISHED) {
-        double totalMarkedPackets = 0;
-        double totalPackets = 0;
-        
-        for (const auto& entry : ecnStatsMap_) {
-        
-        size_t colonPos = entry.first.find(':');
-        if (colonPos != string::npos) {
-            int receiverAddr = stoi(entry.first.substr(colonPos + 1));
-            if (receiverAddr == 5) {
-                const EcnStats& stats = entry.second;
-                totalMarkedPackets += stats.ecnMarkedPackets;
-                totalPackets += stats.totalPackets;
-            }
-        }
-    }
-
-        double overallEcnMarkRatio = 0.0;
-        if (totalPackets > 0) {
-            overallEcnMarkRatio = totalMarkedPackets / totalPackets;
-        }
-
-		// std::cout << "overallEcnMarkRatio " << overallEcnMarkRatio << endl;
-
-		int senderAddr = iph->saddr();
-    	int receiverAddr = iph->daddr();
-
-		if (senderAddr == 5) {
-			if (receiverAddr == 0 || receiverAddr == 1) {
-				if (Random::uniform(1.0) < 0.1 * overallEcnMarkRatio) {
-					pflags |= TH_ECE;
-				}
-        	} else if (receiverAddr == 2 || receiverAddr == 3) {
-				if (Random::uniform(1.0) < 0.2 * overallEcnMarkRatio) {
-					pflags |= TH_ECE;
-				}
-			} else if (receiverAddr == 4) {
-				if (Random::uniform(1.0) < 0.4 * overallEcnMarkRatio) {
-					pflags |= TH_ECE;
-				}
-			}
-			
-		}
-
-    }
-
-
 	if (ecn_ && ect_ && recent_ce_ && state_ != TCPS_ESTABLISHED) {
 		pflags |= TH_ECE;
 	}
@@ -1188,23 +1209,19 @@ void FullTcpAgent::sendpacket(int seqno, int ackno, int pflags, int datalen, int
 	}
 	*/
 	/* MARK END 2 */
-
+	
 	if (ecn_ && ect_) {
 		if (state_ == TCPS_ESTABLISHED) {
 			int senderAddr = iph->saddr();
 			int receiverAddr = iph->daddr();
-    	
+			int TClevel = receiverAddr % TCs.size();
     		if (ecnStatsMap_.find(senderAddr) != ecnStatsMap_.end()) {
         		auto& stats = ecnStatsMap_[senderAddr];
-            	double ecnMarkRatio = stats->alpha;
-				int num = receiverThresholds_.size();
-				if (receiverThresholds_.find(receiverAddr % num) != receiverThresholds_.end()) {
-					// threshold control the biased propotion
-            		double threshold = receiverThresholds_[receiverAddr % num];
-            		if (Random::uniform(1.0) < threshold * ecnMarkRatio) {
-						pflags |= TH_ECE;
-					}
-        		}
+            	double ecnMarkRatio = stats->getAlpha(TClevel);
+            	if (Random::uniform(1.0) < ecnMarkRatio) {
+					pflags |= TH_ECE;
+				}
+        		
     		} else {
 				std::cout << "Did not find the Address Pair" << endl;
 			}	
@@ -1227,7 +1244,7 @@ void FullTcpAgent::sendpacket(int seqno, int ackno, int pflags, int datalen, int
 	}
 	*/
 	
-
+	
 	
 	// fill in CWR and ECE bits which don't actually sit in
 	// the tcp_flags but in hdr_flags
@@ -2058,19 +2075,43 @@ void FullTcpAgent::recv(Packet *pkt, Handler *)
     	hdr_ip *iph = hdr_ip::access(pkt);
         int senderAddr = iph->saddr();
         int receiverAddr = iph->daddr();
-        double timeWindow = t_rtt_ * tcp_tick_;
+   		double timeWindow = t_rtt_ * tcp_tick_;
+		int TClevel = senderAddr % TCs.size();
 		// Ensure that each receiver has its own EcnStats object
         
 		if (ecnStatsMap_.find(receiverAddr) == ecnStatsMap_.end()) {
         	ecnStatsMap_[receiverAddr] = std::make_shared<EcnStats>();
     	}
    		auto& stats = ecnStatsMap_[receiverAddr];
-        // double old_alpha = stats->alpha;
-		// cout << "old_alpha " << old_alpha << endl;
 
         // Get current time
         double currentTime = now();
+
+		stats->updatePackets(TClevel, fh->ce(), currentTime, timeWindow);
 		
+		double sumRatio = TCs[TClevel];
+		
+		for (int i = 0; i < TCs.size(); i++) {
+			cout << "i" << stats->getTotalPackets(i) << endl;
+			if (stats->getTotalPackets(i) > 0) {
+				// sumRatio += static_cast<double>(TCs[i]) / baseR;
+			}
+		}
+		
+
+		// 计算 countedECNpackets 时确保结果是 int 类型
+		int countedECNpackets = 0;
+		if (sumRatio > 0) countedECNpackets = static_cast<int>(static_cast<double>(stats->getTotalEcnMarkedPackets()) / sumRatio);
+
+		// 更新 alpha 值
+		if (stats->getTotalPackets(TClevel) > 0) {
+			double newAlpha = static_cast<double>(countedECNpackets) / stats->getTotalPackets(TClevel);
+			stats->updateAlpha(TClevel, newAlpha);
+		}
+
+		
+
+		/*
         // Packets count in current RTT
         stats->totalPackets++;
         if (fh->ce()) {
@@ -2093,8 +2134,9 @@ void FullTcpAgent::recv(Packet *pkt, Handler *)
             stats->ecnMarkedPackets -= std::get<2>(stats->packetsInWindow.front());
             stats->packetsInWindow.pop();
         }
-
+		*/
 		
+		/*
 		// Calculate the current ECN markup rate
         double F = (stats->totalPackets > 0) ? static_cast<double>(stats->ecnMarkedPackets) / stats->totalPackets : 0.0;
 
@@ -2105,8 +2147,8 @@ void FullTcpAgent::recv(Packet *pkt, Handler *)
 
         stats->alpha = stats->S + stats->T;
 
-        std::cout << "new_alpha " << stats->alpha << std::endl;
-		
+        // std::cout << "new_alpha " << stats->alpha << std::endl;
+		*/
 
 		/*  Method 2 : Kalman filter */
 		/*
@@ -2170,7 +2212,7 @@ void FullTcpAgent::recv(Packet *pkt, Handler *)
 		*/
 
    	 	// Update timestamp
-    	stats->timeStamp = currentTime;
+    	// stats->timeStamp = currentTime;
 		
     }
 		/* Mark END 3 */

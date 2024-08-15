@@ -11,6 +11,7 @@
 #include <string>
 #include <tuple>
 #include <queue>
+#include <atomic>
 
 /*
  * most of these defines are directly from
@@ -74,7 +75,33 @@
 #define PF_TIMEOUT 0x04					  /* protocol defined */
 #define TCP_PAWS_IDLE (24 * 24 * 60 * 60) /* 24 days in secs */
 
+
+class EcnStats {
+public:
+    EcnStats() { }
+    void updatePackets(int TClevel, bool isEcnMarked, double currentTime, double timeWindow);
+
+    // Getter 和 Setter
+    int getTotalEcnMarkedPackets() const;
+	int getTotalPackets(int TClevel) const;
+	void updateAlpha(int TClevel, double alpha_);
+	double getAlpha(int TClevel);
+	
+
+private:
+    struct SenderStats {
+		std::atomic<double> alpha{0.0};
+       	std::atomic<int> totalPackets{0};
+        std::atomic<int> ecnMarkedPackets{0};
+        std::deque<std::tuple<double, int, int>> packetsInWindow;
+    };
+    std::unordered_map<int, std::shared_ptr<SenderStats>> TCsData;
+};
+
+
+
 /* double exponential moving */
+/*
 struct EcnStats {
     int totalPackets = 0;
     int ecnMarkedPackets = 0;
@@ -88,6 +115,8 @@ struct EcnStats {
     double alpha_smoothing = 0.2; // Horizontal smoothing factor
     double beta_trend = 0.1; // Trend smoothing factor
 };
+*/
+
 
 
 /*
@@ -206,6 +235,19 @@ protected:
 	int data_on_syn_;		// send data on initial SYN?
 	double last_send_time_; // time of last send
 	std::unordered_map<int, std::shared_ptr<EcnStats>> ecnStatsMap_;
+	std::map<int, double> TCs = {
+        {0, 3},
+        {1, 1.5}
+    };
+
+	/*
+	std::map<int, double> receiverThresholds_ = {
+        {0, 1.6},
+        {1, 0.4}
+    };
+	*/
+
+	/*
 	std::map<int, double> receiverThresholds_ = {
         {0, 2.416107383},
         {1, 1.208053691},
@@ -214,7 +256,8 @@ protected:
 		{4, 0.4832214765},
 		{5, 0.4832214765}
     };
-
+	*/
+	
 	/*
 	std::map<int, double> receiverThresholds_ = {
         {0, 3.301454212},
@@ -224,13 +267,11 @@ protected:
 		{4, 0.6602908424},
 		{5, 0.6602908424},
 		{6, 0.5502423687},
-		{7, 0.471636316},
+        {7, 0.471636316},
 		{8, 0.4126817765},
 		{9, 0.3668282458}
     };
 	*/
-
-	int record[2] = {0,0};
 	
 	/* Mohammad: state-variable for robust
 	   FCT measurement.

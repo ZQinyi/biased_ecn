@@ -20,15 +20,20 @@ public:
 } class_generic_app;
 
 GenericApp::GenericApp(GenericApp *app) : reqs_sent_(0),
+                                          sending_rate_(0.0), 
+                                          repeat_size_(1),
                                           send_req_timer_(app),
                                           send_resp_timer_(app),
                                           send_incast_timer_(app),
                                           dst_ids_(new std::vector<int32_t>())
+
 {
     init();
 }
 
 GenericApp::GenericApp() : reqs_sent_(0),
+                           sending_rate_(0.0), 
+                           repeat_size_(1),
                            send_req_timer_(this),
                            send_resp_timer_(this),
                            send_incast_timer_(this),
@@ -40,6 +45,8 @@ GenericApp::GenericApp() : reqs_sent_(0),
 void GenericApp::init()
 {
     bind("request_size_B_", &request_size_B_);
+    bind("sending_rate_", &sending_rate_);
+    bind("repeat_size_", &repeat_size_);
     bind("response_size_B_", &response_size_B_);
     bind("request_interval_sec_", &request_interval_sec_);
     bind("incast_interval_sec_", &incast_interval_sec_);

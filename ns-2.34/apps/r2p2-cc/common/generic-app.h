@@ -170,6 +170,10 @@ protected:
     virtual void finish_sim(){};
     virtual void attach_agent(int argc, const char *const *argv){};
 
+    double sending_rate_;  // Sending rate for the messages
+    int repeat_size_;  // Repeat size flag
+
+
     long reqs_sent_;
     SendReqTimer send_req_timer_;
     SendRespTimer send_resp_timer_;
