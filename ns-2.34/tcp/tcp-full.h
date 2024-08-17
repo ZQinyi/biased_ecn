@@ -75,6 +75,9 @@
 #define PF_TIMEOUT 0x04					  /* protocol defined */
 #define TCP_PAWS_IDLE (24 * 24 * 60 * 60) /* 24 days in secs */
 
+extern int global_packet_count_0;
+extern int global_packet_count_1;
+extern int global_packet_count_2;
 
 class EcnStats {
 public:
@@ -82,7 +85,7 @@ public:
     void updatePackets(int TClevel, bool isEcnMarked, double currentTime, double timeWindow);
 
     // Getter 和 Setter
-    int getTotalEcnMarkedPackets() const;
+    int getEcnMarkedPackets(int TClevel) const;
 	int getTotalPackets(int TClevel) const;
 	void updateAlpha(int TClevel, double alpha_);
 	double getAlpha(int TClevel);
@@ -150,7 +153,7 @@ struct EcnStats {
 };
 */
 
-
+extern int global_packet_count;
 class FullTcpAgent;
 class DelAckTimer : public TimerHandler
 {
@@ -236,8 +239,9 @@ protected:
 	double last_send_time_; // time of last send
 	std::unordered_map<int, std::shared_ptr<EcnStats>> ecnStatsMap_;
 	std::map<int, double> TCs = {
-        {0, 3},
-        {1, 1.5}
+        {0, 1},
+        {1, 0.25},
+		{2, 1}
     };
 
 	/*
