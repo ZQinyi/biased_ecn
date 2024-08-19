@@ -75,9 +75,7 @@
 #define PF_TIMEOUT 0x04					  /* protocol defined */
 #define TCP_PAWS_IDLE (24 * 24 * 60 * 60) /* 24 days in secs */
 
-extern int global_packet_count_0;
-extern int global_packet_count_1;
-extern int global_packet_count_2;
+extern int globalPackets[7];
 
 class EcnStats {
 public:
@@ -85,20 +83,40 @@ public:
     void updatePackets(int TClevel, bool isEcnMarked, double currentTime, double timeWindow);
 
     // Getter 和 Setter
-    int getEcnMarkedPackets(int TClevel) const;
-	int getTotalPackets(int TClevel) const;
-	void updateAlpha(int TClevel, double alpha_);
-	double getAlpha(int TClevel);
+    int getEcnMarkedPackets() const;
+	int getTotalPackets() const;
+	void updateAlpha();
+	double getAlpha();
+	double calculateRatio(int TClevel, double now);
+	map<int, double> baseRatio = {
+		{0, 1.0},
+		{1, 0.5},
+		{2, 0.333333},
+		{3, 0.25},
+		{4, 0.2},
+		{5, 0.2},
+		{6, 1.0}
+	};
 	
-
 private:
-    struct SenderStats {
-		std::atomic<double> alpha{0.0};
-       	std::atomic<int> totalPackets{0};
-        std::atomic<int> ecnMarkedPackets{0};
-        std::deque<std::tuple<double, int, int>> packetsInWindow;
-    };
-    std::unordered_map<int, std::shared_ptr<SenderStats>> TCsData;
+    
+	atomic<double> alpha{0.0};
+    atomic<int> totalPackets{0};
+    atomic<int> ecnMarkedPackets{0};
+    deque<std::tuple<double, int, int>> packetsInWindow;
+    
+	double S = 0.0; // smoothing factor
+    double T = 0.0; // trend
+    double alpha_smoothing = 0.2; // Horizontal smoothing factor
+    double beta_trend = 0.1; // Trend smoothing factor
+
+	double timeStamp = 0.0;
+	bool corflag = false;
+	double corFactorH = 1.0;
+	double corFactorL = 1.0;
+	int countH = 0;
+	int countL = 0;
+
 };
 
 
