@@ -256,11 +256,13 @@ protected:
 	int data_on_syn_;		// send data on initial SYN?
 	double last_send_time_; // time of last send
 	std::unordered_map<int, std::shared_ptr<EcnStats>> ecnStatsMap_;
+	/*
 	std::map<int, double> TCs = {
         {0, 1},
         {1, 0.25},
 		{2, 1}
     };
+	*/
 
 	/*
 	std::map<int, double> receiverThresholds_ = {
@@ -269,16 +271,17 @@ protected:
     };
 	*/
 
-	/*
-	std::map<int, double> receiverThresholds_ = {
+	
+	std::map<int, double> TCs = {
         {0, 2.416107383},
         {1, 1.208053691},
 		{2, 0.8053691275},
 		{3, 0.6040268456},
 		{4, 0.4832214765},
-		{5, 0.4832214765}
+		{5, 0.4832214765},
+		{6, 1.0}
     };
-	*/
+	
 	
 	/*
 	std::map<int, double> receiverThresholds_ = {

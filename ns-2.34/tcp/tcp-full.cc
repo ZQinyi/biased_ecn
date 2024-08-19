@@ -317,7 +317,7 @@ void EcnStats::updatePackets(int TClevel, bool isEcnMarked, double currentTime, 
 	
 }
 
-// Getter 方法
+// Getter
 int EcnStats::getTotalPackets() const {
 	return totalPackets;
 }
@@ -356,7 +356,7 @@ double EcnStats::calculateRatio(int TClevel, double now) {
 				countH = 0;
 			}
 			countH++;
-			if (countH >= 50) return corFactorH * ecnMarkRatio;
+			if (countH >= 80) return corFactorH * ecnMarkRatio;
 			corFactorH = 1.05 * corFactorH;
 			ecnMarkRatio = corFactorH * ecnMarkRatio;
 		} else {
@@ -366,7 +366,7 @@ double EcnStats::calculateRatio(int TClevel, double now) {
 				countL = 0;
 			}
 			countL++;
-			if (countL >= 50) return corFactorL * ecnMarkRatio;
+			if (countL >= 80) return corFactorL * ecnMarkRatio;
 			corFactorL = 0.95 * corFactorL;
 			ecnMarkRatio = corFactorL * ecnMarkRatio;
 		}
@@ -383,8 +383,7 @@ double EcnStats::calculateRatio(int TClevel, double now) {
 			countH = 0;
 			countL = 0;
 			timeStamp = now;
-		}
-		
+		}		
 	
 		return ecnMarkRatio;
 	
