@@ -286,8 +286,7 @@ int SackFullTcpAgent::delay_bind_dispatch(const char *varName, const char *local
 	return FullTcpAgent::delay_bind_dispatch(varName, localName, tracer);
 }
 
-
-int globalPackets[7] = {0, 0, 0, 0, 0, 0, 0};
+int totalBitsReceived[TC_COUNT] = {0};
 
 void EcnStats::updatePackets(int TClevel, bool isEcnMarked, double currentTime, double timeWindow) {
     totalPackets++;
@@ -295,7 +294,6 @@ void EcnStats::updatePackets(int TClevel, bool isEcnMarked, double currentTime, 
         ecnMarkedPackets++;
     }
 
-    // 记录统计信息
     if (packetsInWindow.empty() || currentTime - std::get<0>(packetsInWindow.back()) > timeWindow) {
         packetsInWindow.emplace_back(currentTime, 1, isEcnMarked ? 1 : 0);
     } else {
@@ -306,14 +304,13 @@ void EcnStats::updatePackets(int TClevel, bool isEcnMarked, double currentTime, 
         }
     }
 
-    // 移除超出时间窗口的数据
-    while (!packetsInWindow.empty() && currentTime - std::get<0>(packetsInWindow.front()) > 10 * timeWindow) {
+    while (!packetsInWindow.empty() && currentTime - std::get<0>(packetsInWindow.front()) > 15 * timeWindow) {
         totalPackets -= std::get<1>(packetsInWindow.front());
         ecnMarkedPackets -= std::get<2>(packetsInWindow.front());
         packetsInWindow.pop_front();
     }
 
-	globalPackets[TClevel]++;
+	totalBitsReceived[TClevel]++;
 	
 }
 
@@ -331,60 +328,81 @@ double EcnStats::getAlpha() {
     return alpha;
 }
 
-void EcnStats::updateAlpha() {
-	double F = (totalPackets > 0) ? static_cast<double>(ecnMarkedPackets) / totalPackets : 0.0;
-	
+void EcnStats::updateAlpha(double currentTime) {
+	// double F = (totalPackets > 0) ? static_cast<double>(ecnMarkedPackets) / totalPackets : 0.0;
+
+	double weightedSum = 0.0;
+    double weightSum = 0.0;
+    	deque<std::tuple<double, int, int>> tempQueue = packetsInWindow;
+    	while (!tempQueue.empty()) {
+        	const auto& entry = tempQueue.front();
+        	double timestamp = std::get<0>(entry);
+        	int packetCount = std::get<1>(entry);
+        	int ecnCount = std::get<2>(entry);
+
+        	double weight = 1.0 / (currentTime - timestamp + 1); // Weight calculation method: The nearer the time, the greater the weight
+        	double ratio = static_cast<double>(ecnCount) / packetCount;
+
+        	weightedSum += ratio * weight;
+        	weightSum += weight;
+
+        	tempQueue.pop_front();
+    	}
+	/*
 	double previous_S = S;
     S = alpha_smoothing * F + (1 - alpha_smoothing) * (S + T);
     T = beta_trend * (S - previous_S) + (1 - beta_trend) * T;
     alpha = S + T;
+	*/
+	alpha = (weightSum > 0) ? weightedSum / weightSum : 0.0;
 	
 }
 
 double EcnStats::calculateRatio(int TClevel, double now) {
 	double ecnMarkRatio = alpha;
-	double times = 0.0;
-	if (TClevel == 0) return ecnMarkRatio;
-		if (globalPackets[TClevel] > 0) {
-			times = static_cast<double>(globalPackets[0]) / globalPackets[TClevel];
-		}
 
-		if (times < baseRatio[TClevel]) {
+	double times = 0.0;
+	if (TClevel == baseMark) return ecnMarkRatio;
+		if (totalBitsReceived[baseMark] > 0) {
+			times = static_cast<double>(totalBitsReceived[TClevel]) / totalBitsReceived[baseMark];
+		}
+		
+		if (times > baseRatio[TClevel]) {
+			
 			if (corflag) {
 				corFactorH = 1.0;
 				corflag = false;
-				countH = 0;
 			}
-			countH++;
-			if (countH >= 80) return corFactorH * ecnMarkRatio;
-			corFactorH = 1.05 * corFactorH;
+			
+			if (corFactorH >= maxVal) return corFactorH * ecnMarkRatio;
+			corFactorH = 1.10 * corFactorH;
+			
 			ecnMarkRatio = corFactorH * ecnMarkRatio;
 		} else {
+			
 			if (!corflag) {
 				corFactorL = 1.0;
 				corflag = true;
-				countL = 0;
 			}
-			countL++;
-			if (countL >= 80) return corFactorL * ecnMarkRatio;
-			corFactorL = 0.95 * corFactorL;
+			
+			if (corFactorL <= minVal) return corFactorL * ecnMarkRatio;
+			corFactorL = 0.90 * corFactorL;
 			ecnMarkRatio = corFactorL * ecnMarkRatio;
+			
 		}
 
 		// Reset Procedure
-		
-		
-		if (now - timeStamp > 0.02) {
-			for (int i = 0; i < 7; i++) {
-				globalPackets[i] = 1;
+		if (now - timeStamp > interval) {
+			for (int i = 0; i < TC_COUNT; i++) {
+				totalBitsReceived[i] = 1;
 			}
 			corFactorL = 1.0;
 			corFactorH = 1.0;
-			countH = 0;
-			countL = 0;
 			timeStamp = now;
-		}		
-	
+		}
+		
+		
+		// lastAdjustmentTime = now;
 		return ecnMarkRatio;
 	
 }
@@ -1250,17 +1268,16 @@ void FullTcpAgent::sendpacket(int seqno, int ackno, int pflags, int datalen, int
 		if (state_ == TCPS_ESTABLISHED) {
 			int senderAddr = iph->saddr();
 			int receiverAddr = iph->daddr();
-			int TClevel = receiverAddr % TCs.size();
+			int TClevel = receiverAddr % TClevels;
     		if (ecnStatsMap_.find(senderAddr) != ecnStatsMap_.end()) {
         		auto& stats = ecnStatsMap_[senderAddr];
             	double ecnMarkRatio = stats->calculateRatio(TClevel, now());	
-
-            	if (Random::uniform(1.0) < ecnMarkRatio * TCs[TClevel]) {
+            	if (Random::uniform(1.0) < ecnMarkRatio) {
 					pflags |= TH_ECE;
 				}
         		
     		} else {
-				// std::cout << "Did not find the Address Pair" << endl;
+				std::cout << "Did not find the Address Pair" << endl;
 			}	
 		}
 	}
@@ -2097,7 +2114,7 @@ void FullTcpAgent::recv(Packet *pkt, Handler *)
         int senderAddr = iph->saddr();
         int receiverAddr = iph->daddr();
    		double timeWindow = t_rtt_ * tcp_tick_;
-		int TClevel = senderAddr % TCs.size();
+		int TClevel = senderAddr % TClevels;
 		// Ensure that each receiver has its own EcnStats object
         
 		if (ecnStatsMap_.find(receiverAddr) == ecnStatsMap_.end()) {
@@ -2108,7 +2125,7 @@ void FullTcpAgent::recv(Packet *pkt, Handler *)
         // Get current time
         double currentTime = now();
 		stats->updatePackets(TClevel, fh->ce(), currentTime, timeWindow);
-		stats->updateAlpha();
+		stats->updateAlpha(currentTime);
 
 
 		/*

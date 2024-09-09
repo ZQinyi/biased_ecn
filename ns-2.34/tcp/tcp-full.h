@@ -32,6 +32,7 @@
 
 /* these are simulator-specific */
 #define TF_NEEDCLOSE 0x10000 /* perform close on empty */
+#define TC_COUNT 11
 
 /*
  * these are used in state_ member variable
@@ -75,7 +76,7 @@
 #define PF_TIMEOUT 0x04					  /* protocol defined */
 #define TCP_PAWS_IDLE (24 * 24 * 60 * 60) /* 24 days in secs */
 
-extern int globalPackets[7];
+extern int totalBitsReceived[TC_COUNT];
 
 class EcnStats {
 public:
@@ -85,9 +86,40 @@ public:
     // Getter 和 Setter
     int getEcnMarkedPackets() const;
 	int getTotalPackets() const;
-	void updateAlpha();
+	void updateAlpha(double currentTime);
 	double getAlpha();
 	double calculateRatio(int TClevel, double now);
+	
+	
+	map<int, double> baseRatio = {
+		{0, 1.0},
+		{1, 2},
+		{2, 3},
+		{3, 4},
+		{4, 5},
+		{5, 5},
+		{6, 6},
+		{7, 7},
+		{8, 8},
+		{9, 9},
+		{10, 1.0}
+	};
+	
+	
+	/*
+	map<int, double> baseRatio = {
+		{0, 1.0},
+		{1, 2.0},
+		{2, 3.0},
+		{3, 4.0},
+		{4, 1.0}
+	};
+	*/
+	
+	
+	
+
+	/*
 	map<int, double> baseRatio = {
 		{0, 1.0},
 		{1, 0.5},
@@ -97,6 +129,8 @@ public:
 		{5, 0.2},
 		{6, 1.0}
 	};
+	*/
+	
 	
 private:
     
@@ -104,11 +138,16 @@ private:
     atomic<int> totalPackets{0};
     atomic<int> ecnMarkedPackets{0};
     deque<std::tuple<double, int, int>> packetsInWindow;
+	int baseMark = 0;
+	int maxVal = 100;
+	int minVal = 0.01;
     
+	/*
 	double S = 0.0; // smoothing factor
     double T = 0.0; // trend
     double alpha_smoothing = 0.2; // Horizontal smoothing factor
     double beta_trend = 0.1; // Trend smoothing factor
+	*/
 
 	double timeStamp = 0.0;
 	bool corflag = false;
@@ -116,6 +155,8 @@ private:
 	double corFactorL = 1.0;
 	int countH = 0;
 	int countL = 0;
+
+	double interval = 0.1;
 
 };
 
@@ -171,7 +212,6 @@ struct EcnStats {
 };
 */
 
-extern int global_packet_count;
 class FullTcpAgent;
 class DelAckTimer : public TimerHandler
 {
@@ -256,47 +296,8 @@ protected:
 	int data_on_syn_;		// send data on initial SYN?
 	double last_send_time_; // time of last send
 	std::unordered_map<int, std::shared_ptr<EcnStats>> ecnStatsMap_;
-	/*
-	std::map<int, double> TCs = {
-        {0, 1},
-        {1, 0.25},
-		{2, 1}
-    };
-	*/
+	int TClevels = 11;
 
-	/*
-	std::map<int, double> receiverThresholds_ = {
-        {0, 1.6},
-        {1, 0.4}
-    };
-	*/
-
-	
-	std::map<int, double> TCs = {
-        {0, 2.416107383},
-        {1, 1.208053691},
-		{2, 0.8053691275},
-		{3, 0.6040268456},
-		{4, 0.4832214765},
-		{5, 0.4832214765},
-		{6, 1.0}
-    };
-	
-	
-	/*
-	std::map<int, double> receiverThresholds_ = {
-        {0, 3.301454212},
-        {1, 1.650727106},
-		{2, 1.100484737},
-		{3, 0.825363553},
-		{4, 0.6602908424},
-		{5, 0.6602908424},
-		{6, 0.5502423687},
-        {7, 0.471636316},
-		{8, 0.4126817765},
-		{9, 0.3668282458}
-    };
-	*/
 	
 	/* Mohammad: state-variable for robust
 	   FCT measurement.
